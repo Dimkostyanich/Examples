@@ -1,0 +1,220 @@
+import pandas as pd
+import numpy as np
+import unittest, sys
+
+# Для решения задачи используются 3 класса: класс DataFrames для инициализации данных, класс Tests для юнит-тестов
+# и класс Calculations для реализации вычислений.
+
+# Инициализация датафреймов currencies, exchanges, prices и weights
+class DataFrames():
+
+    def __init__(self):
+        
+        self.currencies = pd.read_csv('currencies.csv')
+        self.exchanges = pd.read_csv('exchanges.csv')
+        self.prices = pd.read_csv('prices.csv')
+        self.weights = pd.read_csv('weights.csv')
+
+        
+# В задании не указывалось, какие тесты требуется сделать, поэтому реализован только тест testNaN,
+# который проверяет датафрейм prices на наличие пустых значений, и заменяет их средним по столбцу
+class Tests(DataFrames, unittest.TestCase):
+    
+    
+    def __init__(self):
+        
+        super(Tests, self).__init__()
+    
+    
+    def testNaN(self):
+        
+        for i in list(self.prices.columns)[1:]:
+            mean = np.mean(self.prices[i])
+            for j in range(len(self.prices[i])):
+                try:
+                    self.assertFalse(pd.isnull(self.prices[i][j]), "Price number " + str(j) + " in column " + i + " replaced by mean")
+                except AssertionError:
+                    self.prices[i][j] = mean
+                    
+
+        
+# Класс для вычсления доходности портфеля        
+class Calculations(DataFrames):
+    
+    
+    def __init__(self):
+        
+        super(Calculations, self).__init__()
+        # Инициализация начальных условий для вычисления доходности
+        self.p0 = 1
+        self.cp0 = 1
+        self.tp0 = 1
+    
+    # Вычисление доходности активов
+    def calculate_asset_performance(self, start_date, end_date):
+        
+        Rti = pd.DataFrame(columns = self.prices.columns)
+        Rt = pd.DataFrame(columns = ['date', 'Rt'])
+        Pt = pd.DataFrame(columns = ['date', 'Pt'])
+        
+        # Поиск индекса начальной и конечной дат
+        for index, value in enumerate(self.prices['date']):
+            if value.strip() == start_date:
+                start_index = index
+                # Запрет использования первого значения, т.к. вычисление зависит от предидущего значения
+                if start_index == 0:
+                    start_index += 1
+            elif value.strip() == end_date:
+                stop_index = index + 1
+        
+        # Вычисление доходности активов
+        for i in range(start_index, stop_index):
+            for j in list(Rti.columns):
+                if j == 'date':
+                    Rti.loc[i, j] = self.prices['date'].values[i]
+                else:
+                    Rti.loc[i, j] = ((self.prices.loc[i, j] - self.prices.loc[i - 1, j])/self.prices.loc[i - 1, j])
+
+        # Вычисление взвешенной суммы доходности активов
+        for index_i, value_i in enumerate(Rti.values):
+            for index_j, value_j in enumerate(self.weights.values):
+                if Rti.values[index_i][0].strip() == self.weights.values[index_j][0].strip():
+                    Rt.loc[index_i, 'Rt'] = sum(Rti.values[index_i][1:]*self.weights.values[index_j][1:])
+                    Rt.loc[index_i, 'date'] = value_i[0]
+        
+        # Вычисление доходности активов портфеля для каждого дня изи заданного периода
+        for index, value in enumerate(Rt['Rt']):
+            if index == 0:
+                Pt.loc[index, 'date'] = Rt['date'].values[index]
+                Pt.loc[index, 'Pt'] = self.p0*(1+value)
+            else:
+                Pt.loc[index, 'date'] = Rt['date'].values[index]
+                Pt.loc[index, 'Pt'] = Pt.loc[index-1, 'Pt']*(1+value)
+        
+        return Pt
+    
+    
+    # Вычисление доходности валюты
+    def calculate_currency_performance(self, start_date, end_date):
+        
+        CRti = pd.DataFrame(columns = self.prices.columns)
+        CRt = pd.DataFrame(columns = ['date', 'CRt'])
+        CPt = pd.DataFrame(columns = ['date', 'CPt'])
+        
+        # Поиск индекса начальной и конечной дат
+        for index, value in enumerate(self.exchanges['Unnamed: 0']):
+            if value.strip() == start_date:
+                start_index = index
+                # Запрет использования первого значения, т.к. вычисление зависит от предидущего значения
+                if start_index == 0:
+                    start_index += 1
+            elif value.strip() == end_date:
+                stop_index = index + 1
+        
+        # Вычисление доходности валюты
+        for i in range(start_index, stop_index):
+            for j in list(CRti.columns):
+                if j == 'date':
+                    CRti.loc[i, j] = self.exchanges['Unnamed: 0'].values[i]
+                elif 'US' in j:
+                    CRti.loc[i, j] = 0
+                elif 'BB' in j or 'GR' in j:
+                    CRti.loc[i, j] = ((self.exchanges.loc[i, 'EUR'] - self.exchanges.loc[i - 1, 'EUR'])/
+self.exchanges.loc[i - 1, 'EUR'])
+                elif 'SW' in j:
+                    CRti.loc[i, j] = ((self.exchanges.loc[i, 'CHF'] - self.exchanges.loc[i - 1, 'CHF'])/
+self.exchanges.loc[i - 1, 'CHF'])
+       
+        # Вычисление взвешенной суммы доходности валюты
+        for index_i, value_i in enumerate(CRti.values):
+            for index_j, value_j in enumerate(self.weights.values):
+                if CRti.values[index_i][0].strip() == self.weights.values[index_j][0].strip():
+                    CRt.loc[index_i, 'CRt'] = sum(CRti.values[index_i][1:]*self.weights.values[index_j][1:])
+                    CRt.loc[index_i, 'date'] = value_i[0]
+
+        # Вычисление доходности валюты портфеля для каждого дня изи заданного периода
+        for index, value in enumerate(CRt['CRt']):
+            if index == 0:
+                CPt.loc[index, 'date'] = CRt['date'].values[index]
+                CPt.loc[index, 'CPt'] = self.cp0*(1+value)
+            else:
+                CPt.loc[index, 'date'] = CRt['date'].values[index]
+                CPt.loc[index, 'CPt'] = CPt.loc[index-1, 'CPt']*(1+value)
+                
+        return CPt
+    
+    
+    # Вычисление полной доходности
+    def calculate_total_performance(self, start_date, end_date):
+        
+        TRti = pd.DataFrame(columns = self.prices.columns)
+        TRt = pd.DataFrame(columns = ['date', 'TRt'])
+        TPt = pd.DataFrame(columns = ['date', 'TPt'])
+        
+        # Поиск индекса начальной и конечной дат
+        for index, value in enumerate(self.prices['date']):
+            if value.strip() == start_date:
+                start_index = index
+                # Запрет использования первого значения, т.к. вычисление зависит от предидущего значения
+                if start_index == 0:
+                    start_index += 1
+            elif value.strip() == end_date:
+                stop_index = index + 1
+        
+        # Задание только тех дат, для которых есть данные по ценам
+        for i in range(start_index, stop_index):
+            for index, value in enumerate(self.exchanges['Unnamed: 0']):
+                if self.prices['date'].values[i] == value:
+                    TRti.loc[i, 'date'] = self.prices['date'].values[i]
+
+        # Вычисление полной доходности
+        for i in range(start_index, stop_index):
+            for j in list(TRti.columns[1:]):
+                if 'US' in j:
+                    TRti.loc[i, j] = ((self.prices.loc[i, j] - self.prices.loc[i - 1, j])/self.prices.loc[i - 1, j])
+                elif 'BB' in j or 'GR' in j:
+                    for index, value in enumerate(self.exchanges['Unnamed: 0']):
+                        if self.prices['date'].values[i] == value:
+                            exchange = self.exchanges['EUR'].values[index]
+                    TRti.loc[i, j] = ((self.prices.loc[i, j]*exchange -
+self.prices.loc[i - 1, j]*exchange)/(self.prices.loc[i - 1, j]*exchange))
+                elif 'SW' in j:
+                    for index, value in enumerate(self.exchanges['Unnamed: 0']):
+                        if self.prices['date'].values[i] == value:
+                            exchange = self.exchanges['CHF'].values[index]
+                    TRti.loc[i, j] = ((self.prices.loc[i, j]*exchange -
+self.prices.loc[i - 1, j]*exchange)/(self.prices.loc[i - 1, j]*exchange))
+
+        # Вычисление взвешенной полной доходности
+        for index_i, value_i in enumerate(TRti.values):
+            for index_j, value_j in enumerate(self.weights.values):
+                if TRti.values[index_i][0].strip() == self.weights.values[index_j][0].strip():
+                    TRt.loc[index_i, 'TRt'] = sum(TRti.values[index_i][1:]*self.weights.values[index_j][1:])
+                    TRt.loc[index_i, 'date'] = value_i[0]
+
+        # Вычисление полной доходности портфеля для каждого дня изи заданного периода
+        for index, value in enumerate(TRt['TRt']):
+            if index == 0:
+                TPt.loc[index, 'date'] = TRt['date'].values[index]
+                TPt.loc[index, 'TPt'] = self.tp0*(1+value)
+            else:
+                TPt.loc[index, 'date'] = TRt['date'].values[index]
+                TPt.loc[index, 'TPt'] = TPt.loc[index-1, 'TPt']*(1+value)
+        
+        return TPt
+    
+
+
+# Реализация
+task = Calculations()
+test = Tests()
+test.testNaN()
+start_date = '2014-01-20'
+end_date = '2014-01-28'
+Pt_calculated = task.calculate_asset_performance(start_date, end_date)
+CPt_calculated = task.calculate_currency_performance(start_date, end_date)
+TPt_calculated = task.calculate_total_performance(start_date, end_date)
+print(Pt_calculated)
+print(CPt_calculated)
+print(TPt_calculated)
+sys.exit(0)
